@@ -24,7 +24,6 @@
 
 (def todos (atom (sorted-map 1 {:id 1 :name "Taste htmx with Babashka" :done true}
                              2 {:id 2 :name "Buy a unicorn" :done false})))
-
 (def todos-id (atom (count @todos)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -57,6 +56,13 @@
 (defn todos-completed []
   (count (filter #(:done (val %)) @todos)))
 
+(defn toggle-all-todos []
+  (let [all-done (not (every? :done (vals @todos)))]
+    (->> @todos
+         (map #(assoc-in % [1 :done] all-done))
+         (into {})
+         (reset! todos))))
+
 (defn remove-all-completed-todo []
   (reset! todos (into {} (remove #(:done (val %)) @todos))))
 
@@ -88,6 +94,15 @@
    [:input.edit {:type "text"
                  :name "name"
                  :value name}]])
+
+(defn toggle-all []
+   [:input#toggle-all.toggle-all
+    {:hx-patch "/todos"
+     :type "checkbox"
+     :checked (every? :done (vals @todos))
+     :hx-target "#todo-list"
+     :hx-swap-oob "true"
+     :hx-push-url "/"}])
 
 (defn item-count []
   (let [items-left (get-items-left)]
@@ -142,7 +157,7 @@
           :placeholder "What needs to be done?"
           :autofocus ""}]]]
       [:section.main
-       [:input#toggle-all.toggle-all {:type "checkbox"}]
+       (toggle-all)
        [:label {:for "toggle-all"} "Mark all as complete"]]
       [:ul#todo-list.todo-list
        (todo-list (filtered-todo filter @todos))]
@@ -194,6 +209,7 @@
   (let [name (parse-body body)
         todo (add-todo! name)]
     (render (list (todo-item (val (last todo)))
+                  (toggle-all)
                   (item-count)))))
 
 (defn edit-item [{{id :id} :params}]
@@ -208,16 +224,26 @@
 (defn patch-item [{{id :id} :params}]
   (let [todo (toggle-todo! id)]
     (render (list (todo-item (get todo (Integer. id)))
+                  (toggle-all)
                   (item-count)
                   (clear-completed-button)))))
 
+(defn patch-all-items [_]
+  (toggle-all-todos)
+  (render (list (todo-list @todos)
+                (toggle-all)
+                (item-count)
+                (clear-completed-button))))
+
 (defn delete-item [{{id :id} :params}]
   (remove-todo! id)
-  (render (item-count)))
+  (render (list (toggle-all)
+                (item-count))))
 
 (defn clear-completed [_]
   (remove-all-completed-todo)
   (render (list (todo-list @todos)
+                (toggle-all)
                 (item-count)
                 (clear-completed-button))))
 
@@ -234,6 +260,9 @@
              {:path     "/todos"
               :method   :post
               :response add-item}
+             {:path     "/todos"
+              :method   :patch
+              :response patch-all-items}
              {:path     "/todos/update/:id"
               :method   :patch
               :response update-item}
