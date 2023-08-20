@@ -25,6 +25,7 @@
 (def todos (atom (sorted-map 1 {:id 1 :name "Taste htmx with Babashka" :done true}
                              2 {:id 2 :name "Buy a unicorn" :done false})))
 (def todos-id (atom (count @todos)))
+(def curr-filter (atom "all"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; "DB" queries
@@ -43,12 +44,12 @@
 (defn remove-todo! [id]
   (swap! todos dissoc (Integer. id)))
 
-(defn filtered-todo [filter-name todos]
-  (case filter-name
-    "active" (remove #(:done (val %)) todos)
-    "completed" (filter #(:done (val %)) todos)
-    "all" todos
-    todos))
+(defn is-filtered? [todo]
+  (case @curr-filter
+    "active" (:done todo)
+    "completed" (not (:done todo))
+    "all" false
+    false))
 
 (defn get-items-left []
   (count (remove #(:done (val %)) @todos)))
@@ -70,20 +71,21 @@
 ;; Template and components
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn todo-item [{:keys [id name done]}]
-  [:li {:id (str "todo-" id)
-        :class (when done "completed")}
-   [:div.view
-    [:input.toggle {:hx-patch (str "/todos/" id)
-                    :type "checkbox"
-                    :checked done
-                    :hx-target (str "#todo-" id)
-                    :hx-swap "outerHTML"}]
-    [:label {:hx-get (str "/todos/edit/" id)
-             :hx-target (str "#todo-" id)
-             :hx-swap "outerHTML"} name]
-    [:button.destroy {:hx-delete (str "/todos/" id)
-                      :_ (str "on htmx:afterOnLoad remove #todo-" id)}]]])
+(defn todo-item [{:keys [id name done] :as todo}]
+  (when-not (is-filtered? todo)
+    [:li {:id (str "todo-" id)
+          :class (when done "completed")}
+     [:div.view
+      [:input.toggle {:hx-patch (str "/todos/" id)
+                      :type "checkbox"
+                      :checked done
+                      :hx-target (str "#todo-" id)
+                      :hx-swap "outerHTML"}]
+      [:label {:hx-get (str "/todos/edit/" id)
+               :hx-target (str "#todo-" id)
+               :hx-swap "outerHTML"} name]
+      [:button.destroy {:hx-delete (str "/todos/" id)
+                        :_ (str "on htmx:afterOnLoad remove #todo-" id)}]]]))
 
 (defn todo-list [todos]
   (for [todo todos]
@@ -96,13 +98,15 @@
                  :value name}]])
 
 (defn toggle-all []
+  [:section#main.main
+   {:hx-swap-oob "true"
+    :class (when (empty? @todos) "hidden")}
    [:input#toggle-all.toggle-all
     {:hx-patch "/todos"
      :type "checkbox"
      :checked (every? :done (vals @todos))
-     :hx-target "#todo-list"
-     :hx-swap-oob "true"
-     :hx-push-url "/"}])
+     :hx-target "#todo-list"}]
+   [:label {:for "toggle-all"} "Mark all as complete"]])
 
 (defn item-count []
   (let [items-left (get-items-left)]
@@ -110,6 +114,7 @@
      [:strong items-left] (cl-format nil " item~p " items-left) "left"]))
 
 (defn todo-filters [filter]
+  (reset! curr-filter filter)
   [:ul#filters.filters {:hx-swap-oob "true"}
    [:li [:a {:hx-get "/?filter=all"
              :hx-push-url "true"
@@ -156,11 +161,9 @@
          {:name "todo"
           :placeholder "What needs to be done?"
           :autofocus ""}]]]
-      [:section.main
-       (toggle-all)
-       [:label {:for "toggle-all"} "Mark all as complete"]]
+      (toggle-all)
       [:ul#todo-list.todo-list
-       (todo-list (filtered-todo filter @todos))]
+       (todo-list @todos)]
       [:footer.footer
        (item-count)
        (todo-filters filter)
@@ -184,10 +187,11 @@
       URLDecoder/decode))
 
 (defn parse-query-string [query-string]
-  (when query-string
+  (if query-string
     (-> query-string
         (str/split #"=")
-        second)))
+        second)
+    "all"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Handlers
@@ -201,7 +205,7 @@
   (let [filter (parse-query-string query-string)
         ajax-request? (get headers "hx-request")]
     (if (and filter ajax-request?)
-      (render (list (todo-list (filtered-todo filter @todos))
+      (render (list (todo-list @todos)
                     (todo-filters filter)))
       (render (template filter)))))
 
@@ -245,6 +249,7 @@
   (render (list (todo-list @todos)
                 (toggle-all)
                 (item-count)
+                (todo-filters "all")
                 (clear-completed-button))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
