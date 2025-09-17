@@ -289,5 +289,5 @@
   (let [url (str "http://localhost:" port "/")]
     (srv/run-server #(ruuter/route routes %) {:port port})
     (println "serving" url)
-    (browse/browse-url url)
+    (comment (browse/browse-url url))
     @(promise)))
